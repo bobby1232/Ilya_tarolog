@@ -170,6 +170,31 @@ COMMANDS_KEYBOARD = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+ACTION_KEYBOARD = ReplyKeyboardMarkup(
+    [["Натальная карта", "Совместимость", "Натальная карта v2"]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
+
+
+def _clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.pop("flow", None)
+    context.user_data.pop("compatibility_stage", None)
+    context.user_data.pop("compatibility_primary", None)
+    context.user_data.pop("pending_data", None)
+    context.user_data.pop("pending_profile", None)
+    context.user_data.pop("pending_birth_data", None)
+    context.user_data.pop("pending_time_request", None)
+    context.user_data.pop("reading_mode", None)
+
+
+async def _prompt_birth_data(update: Update) -> None:
+    await update.message.reply_text(
+        "Шаг 2/6 — отправь данные рождения одним сообщением:\n"
+        "например: 12.07.1991 14:25 Москва\n\n"
+        "Если времени нет, напиши «не знаю» или «примерно».",
+        reply_markup=ReplyKeyboardRemove(),
+    )
 
 
 def _extract_birth_data(text: str) -> dict:
@@ -510,6 +535,14 @@ async def _generate_compatibility_reading(primary: dict, partner: dict, seed_tex
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _log_history(update, "command:/start")
+    if context.user_data.get("consent"):
+        context.user_data["awaiting_action"] = True
+        await update.message.reply_text(
+            "С возвращением. Выбери, что нужно посчитать:",
+            reply_markup=ACTION_KEYBOARD,
+        )
+        return
+    context.user_data["consent_requested"] = True
     await update.message.reply_text(
         "Шаг 1/6 — приветствие.\n"
         "Приветствую, искатель. "
@@ -521,15 +554,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "⚠️ «примерно» (±30–60 минут)\n"
         "🟡 «не знаю» (упрощённая интерпретация)\n\n"
         f"{CONSENT_TEXT}\n\n"
-        "После согласия перейдём к данным рождения.\n\n"
-        "Если хочешь проверить совместимость, напиши: `/compatibility`\n\n"
-        "Для расширенного психологического разбора — `/natal_v2`\n\n"
+        "После согласия предложу варианты расчёта.\n\n"
         f"{DISCLAIMER}",
-        reply_markup=COMMANDS_KEYBOARD,
-        parse_mode="Markdown",
-    )
-    await update.message.reply_text(
-        CONSENT_TEXT,
         reply_markup=CONSENT_KEYBOARD,
         parse_mode="Markdown",
     )
@@ -540,7 +566,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "Шаг 1/6 — согласие на обработку данных.\n"
         "Ответь: «Согласен» или «Не согласен».\n\n"
-        "Шаг 2/6 — данные рождения.\n"
+        "Шаг 2/6 — выбор расчёта (натальная карта / совместимость / натальная карта v2).\n\n"
+        "Шаг 3/6 — данные рождения.\n"
         "Напиши дату, время и город.\n"
         "Если время неизвестно, напиши «не знаю» или «примерно».\n"
         "Пример: 12.07.1991 14:25 Москва\n"
@@ -556,14 +583,12 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
     _log_history(update, "command:/compatibility")
     if not context.user_data.get("consent"):
         await update.message.reply_text(
-            CONSENT_TEXT,
-            parse_mode="Markdown",
-            reply_markup=CONSENT_KEYBOARD,
+            "Сначала нужно согласие. Нажми /start, чтобы начать.",
         )
         return
+    _clear_flow(context)
     context.user_data["flow"] = "compatibility"
     context.user_data["compatibility_stage"] = "primary"
-    context.user_data.pop("pending_data", None)
     await update.message.reply_text(
         "Шаг 1/6 — совместимость.\n"
         "Отправь свои данные: дата рождения, время и город.\n"
@@ -578,21 +603,15 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def natal_v2_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _log_history(update, "command:/natal_v2")
-    context.user_data["reading_mode"] = "natal_v2"
     if not context.user_data.get("consent"):
         await update.message.reply_text(
-            CONSENT_TEXT,
-            parse_mode="Markdown",
-            reply_markup=CONSENT_KEYBOARD,
+            "Сначала нужно согласие. Нажми /start, чтобы начать.",
         )
         return
-    await update.message.reply_text(
-        "Шаг 2/6 — натальная карта v2.\n"
-        "Отправь дату рождения, время и город одним сообщением.\n"
-        "Пример: 12.07.1991 14:25 Москва\n\n"
-        "Если времени нет, напиши «не знаю» или «примерно».",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    _clear_flow(context)
+    context.user_data["reading_mode"] = "natal_v2"
+    await update.message.reply_text("Шаг 2/6 — натальная карта v2.")
+    await _prompt_birth_data(update)
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -615,13 +634,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     pending_profile = context.user_data.get("pending_profile")
     pending_birth_data = context.user_data.get("pending_birth_data")
     pending_time_request = context.user_data.get("pending_time_request")
+    awaiting_action = context.user_data.get("awaiting_action")
 
     if not context.user_data.get("consent"):
         if lower_text in {"согласен", "да", "ok", "ок", "окей"}:
             context.user_data["consent"] = True
+            context.user_data["awaiting_action"] = True
             await update.message.reply_text(
-                "Шаг 2/6 — отправь данные рождения одним сообщением:\n"
-                "например: 12.07.1991 14:25 Москва"
+                "Согласие получено. Выбери, что нужно посчитать:",
+                reply_markup=ACTION_KEYBOARD,
             )
             return
         if lower_text in {"не согласен", "нет"}:
@@ -630,10 +651,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "Если передумаешь — напиши «Согласен»."
             )
             return
+        if not context.user_data.get("consent_requested"):
+            await update.message.reply_text("Нажми /start, чтобы начать и дать согласие.")
+            return
+        await update.message.reply_text("Я жду ответ: «Согласен» или «Не согласен».")
+        return
+
+    if awaiting_action:
+        normalized = lower_text.replace("ё", "е")
+        if normalized in {"натальная карта", "натальная"}:
+            context.user_data.pop("awaiting_action", None)
+            _clear_flow(context)
+            await update.message.reply_text("Шаг 2/6 — натальная карта.")
+            await _prompt_birth_data(update)
+            return
+        if normalized in {"совместимость", "синастрия"}:
+            context.user_data.pop("awaiting_action", None)
+            await compatibility_command(update, context)
+            return
+        if normalized in {"натальная карта v2", "нотальная карта v2", "натальная v2"}:
+            context.user_data.pop("awaiting_action", None)
+            await natal_v2_command(update, context)
+            return
         await update.message.reply_text(
-            CONSENT_TEXT,
-            parse_mode="Markdown",
-            reply_markup=CONSENT_KEYBOARD,
+            "Выбери вариант кнопкой ниже.",
+            reply_markup=ACTION_KEYBOARD,
         )
         return
 
