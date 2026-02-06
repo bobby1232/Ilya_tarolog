@@ -162,6 +162,14 @@ GOAL_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True,
     one_time_keyboard=True,
 )
+COMMANDS_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["/start", "/help"],
+        ["/compatibility", "/natal_v2"],
+        ["/delete"],
+    ],
+    resize_keyboard=True,
+)
 
 
 def _extract_birth_data(text: str) -> dict:
@@ -517,6 +525,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Если хочешь проверить совместимость, напиши: `/compatibility`\n\n"
         "Для расширенного психологического разбора — `/natal_v2`\n\n"
         f"{DISCLAIMER}",
+        reply_markup=COMMANDS_KEYBOARD,
+        parse_mode="Markdown",
+    )
+    await update.message.reply_text(
+        CONSENT_TEXT,
         reply_markup=CONSENT_KEYBOARD,
         parse_mode="Markdown",
     )
@@ -534,7 +547,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "После подтверждения спрошу имя и цель, затем дам паспорт карты.\n\n"
         "Для проверки совместимости: /compatibility\n"
         "Расширенный разбор (натальная карта v2): /natal_v2\n"
-        "Удалить данные сессии: /delete"
+        "Удалить данные сессии: /delete",
+        reply_markup=COMMANDS_KEYBOARD,
     )
 
 
@@ -586,6 +600,8 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data.clear()
     await update.message.reply_text(
         "Данные сессии удалены. Если захочешь начать заново — напиши /start."
+        "\n\nКоманды доступны кнопками ниже.",
+        reply_markup=COMMANDS_KEYBOARD,
     )
 
 
