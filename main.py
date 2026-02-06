@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 
 from openai import OpenAI
-from telegram import Update
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(
@@ -120,6 +120,30 @@ COMPATIBILITY_GUIDANCE = [
     "Сначала — признание чувств, потом решения.",
     "Сила связи растёт через общие ритуалы.",
 ]
+
+CONSENT_KEYBOARD = ReplyKeyboardMarkup(
+    [["Согласен", "Не согласен"]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
+TIME_MODE_KEYBOARD = ReplyKeyboardMarkup(
+    [["Знаю точное время", "Примерно", "Не знаю"]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
+CONFIRM_KEYBOARD = ReplyKeyboardMarkup(
+    [["Да", "Исправить"]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
+GOAL_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["Отношения", "Карьера", "Деньги"],
+        ["Самореализация", "Сильные периоды", "Другое"],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
 
 
 def _extract_birth_data(text: str) -> dict:
@@ -418,7 +442,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{CONSENT_TEXT}\n\n"
         "После согласия перейдём к данным рождения.\n\n"
         "Если хочешь проверить совместимость, напиши: /compatibility\n\n"
-        f"{DISCLAIMER}"
+        f"{DISCLAIMER}",
+        reply_markup=CONSENT_KEYBOARD,
+        parse_mode="Markdown",
     )
 
 
@@ -438,7 +464,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.user_data.get("consent"):
-        await update.message.reply_text(CONSENT_TEXT, parse_mode="Markdown")
+        await update.message.reply_text(
+            CONSENT_TEXT,
+            parse_mode="Markdown",
+            reply_markup=CONSENT_KEYBOARD,
+        )
         return
     context.user_data["flow"] = "compatibility"
     context.user_data["compatibility_stage"] = "primary"
@@ -450,7 +480,8 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
         "Режимы времени:\n"
         "✅ «знаю точное время»\n"
         "⚠️ «примерно» (±30–60 минут)\n"
-        "🟡 «не знаю»"
+        "🟡 «не знаю»",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
 
@@ -468,6 +499,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     flow = context.user_data.get("flow")
     stage = context.user_data.get("compatibility_stage")
     pending_profile = context.user_data.get("pending_profile")
+    pending_birth_data = context.user_data.get("pending_birth_data")
+    pending_time_request = context.user_data.get("pending_time_request")
 
     if not context.user_data.get("consent"):
         if lower_text in {"согласен", "да", "ok", "ок", "окей"}:
@@ -483,7 +516,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "Если передумаешь — напиши «Согласен»."
             )
             return
-        await update.message.reply_text(CONSENT_TEXT, parse_mode="Markdown")
+        await update.message.reply_text(
+            CONSENT_TEXT,
+            parse_mode="Markdown",
+            reply_markup=CONSENT_KEYBOARD,
+        )
         return
 
     if not pending and any(keyword in lower_text for keyword in {"совместимость", "синастрия"}):
@@ -509,14 +546,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 context.user_data.pop("compatibility_stage", None)
                 context.user_data.pop("flow", None)
                 reading = await _generate_compatibility_reading(primary, pending, text)
-                await update.message.reply_text(reading, parse_mode="Markdown")
+                await update.message.reply_text(
+                    reading,
+                    parse_mode="Markdown",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
                 return
         context.user_data["pending_profile"] = pending
         await update.message.reply_text(
             "Шаг 5/6 — имя и цель.\n"
             "Напиши имя (или псевдоним) и цель, например:\n"
             "Алина, отношения\n\n"
-            "Цели: отношения / карьера / деньги / самореализация / период / другое."
+            "Цели: отношения / карьера / деньги / самореализация / период / другое.",
+            reply_markup=GOAL_KEYBOARD,
         )
         return
 
@@ -532,7 +574,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(
             "Шаг 2/6 — отправь данные заново: дата, время, город.\n"
             "Пример: 12.07.1991 14:25 Москва\n"
-            "Если время неизвестно, напиши «не знаю» или «примерно»."
+            "Если время неизвестно, напиши «не знаю» или «примерно».",
+            reply_markup=ReplyKeyboardRemove(),
         )
         return
 
@@ -542,7 +585,97 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pending_profile["name"] = name
         pending_profile["goal"] = goal
         reading = await _generate_reading(pending_profile, text)
-        await update.message.reply_text(reading, parse_mode="Markdown")
+        await update.message.reply_text(
+            reading,
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    if pending_time_request:
+        time_match = TIME_RE.search(text)
+        if not time_match:
+            await update.message.reply_text(
+                "Шаг 3/6 — укажи точное время в формате чч:мм, например 14:25.",
+                reply_markup=TIME_MODE_KEYBOARD,
+            )
+            return
+        hour, minute = map(int, time_match.groups())
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            await update.message.reply_text(
+                "Шаг 3/6 — время должно быть в пределах суток. Пример: 14:25.",
+                reply_markup=TIME_MODE_KEYBOARD,
+            )
+            return
+        pending_time_request["time"] = f"{hour:02d}:{minute:02d}"
+        pending_time_request["time_mode"] = "exact"
+        context.user_data.pop("pending_time_request", None)
+        context.user_data["pending_data"] = pending_time_request
+        if flow == "compatibility":
+            stage_label = "ты" if stage == "primary" else "партнёр"
+            await update.message.reply_text(
+                _build_compatibility_confirmation(pending_time_request, stage_label),
+                parse_mode="Markdown",
+                reply_markup=CONFIRM_KEYBOARD,
+            )
+            return
+        await update.message.reply_text(
+            _build_confirmation(pending_time_request),
+            parse_mode="Markdown",
+            reply_markup=CONFIRM_KEYBOARD,
+        )
+        return
+
+    if pending_birth_data:
+        normalized = lower_text.replace("ё", "е")
+        if normalized in {"знаю точное время", "точное", "знаю"}:
+            context.user_data.pop("pending_birth_data", None)
+            context.user_data["pending_time_request"] = pending_birth_data
+            await update.message.reply_text(
+                "Шаг 3/6 — укажи точное время в формате чч:мм.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+        if normalized in {"примерно", "примерное"}:
+            pending_birth_data["time_mode"] = "approx"
+            context.user_data.pop("pending_birth_data", None)
+            context.user_data["pending_data"] = pending_birth_data
+            if flow == "compatibility":
+                stage_label = "ты" if stage == "primary" else "партнёр"
+                await update.message.reply_text(
+                    _build_compatibility_confirmation(pending_birth_data, stage_label),
+                    parse_mode="Markdown",
+                    reply_markup=CONFIRM_KEYBOARD,
+                )
+                return
+            await update.message.reply_text(
+                _build_confirmation(pending_birth_data),
+                parse_mode="Markdown",
+                reply_markup=CONFIRM_KEYBOARD,
+            )
+            return
+        if normalized in {"не знаю", "нет", "неизвестно"}:
+            pending_birth_data["time_mode"] = "no_time"
+            context.user_data.pop("pending_birth_data", None)
+            context.user_data["pending_data"] = pending_birth_data
+            if flow == "compatibility":
+                stage_label = "ты" if stage == "primary" else "партнёр"
+                await update.message.reply_text(
+                    _build_compatibility_confirmation(pending_birth_data, stage_label),
+                    parse_mode="Markdown",
+                    reply_markup=CONFIRM_KEYBOARD,
+                )
+                return
+            await update.message.reply_text(
+                _build_confirmation(pending_birth_data),
+                parse_mode="Markdown",
+                reply_markup=CONFIRM_KEYBOARD,
+            )
+            return
+        await update.message.reply_text(
+            "Шаг 3/6 — выбери режим времени кнопкой ниже.",
+            reply_markup=TIME_MODE_KEYBOARD,
+        )
         return
 
     data = _extract_birth_data(text)
@@ -561,11 +694,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if data["time_mode"] == "unknown":
+        context.user_data["pending_birth_data"] = data
         await update.message.reply_text(
             "Шаг 3/6 — выбери режим времени:\n"
             "✅ «знаю точное время» (например: 14:25)\n"
             "⚠️ «примерно» (±30–60 минут)\n"
-            "🟡 «не знаю»"
+            "🟡 «не знаю»",
+            reply_markup=TIME_MODE_KEYBOARD,
         )
         return
 
@@ -575,9 +710,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(
             _build_compatibility_confirmation(data, stage_label),
             parse_mode="Markdown",
+            reply_markup=CONFIRM_KEYBOARD,
         )
         return
-    await update.message.reply_text(_build_confirmation(data), parse_mode="Markdown")
+    await update.message.reply_text(
+        _build_confirmation(data),
+        parse_mode="Markdown",
+        reply_markup=CONFIRM_KEYBOARD,
+    )
 
 
 def main() -> None:
