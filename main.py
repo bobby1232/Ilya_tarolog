@@ -8,6 +8,7 @@ from datetime import datetime
 from openai import OpenAI
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.helpers import escape_markdown
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -217,8 +218,10 @@ def _build_reading(data: dict, seed_text: str) -> str:
     elif data["time_mode"] == "approx":
         time_note = "Точность снижена из-за примерного времени рождения.\n\n"
 
-    name_line = f"*Имя:* {data['name']}.\n" if data.get("name") else ""
-    goal_line = f"*Запрос:* {data['goal']}.\n" if data.get("goal") else ""
+    name_value = _safe_markdown(data.get("name"))
+    goal_value = _safe_markdown(data.get("goal"))
+    name_line = f"*Имя:* {name_value}.\n" if name_value else ""
+    goal_line = f"*Запрос:* {goal_value}.\n" if goal_value else ""
     return (
         "🪐 *Паспорт карты Элайджа*\n"
         f"{name_line}"
@@ -337,6 +340,12 @@ def _format_time_mode(time_mode: str) -> str:
     }.get(time_mode, "🟡 без времени — без Асцендента и домов")
 
 
+def _safe_markdown(value: str | None) -> str:
+    if not value:
+        return ""
+    return escape_markdown(value, version=1)
+
+
 def _build_prompt(data: dict) -> str:
     if data.get("reading_mode") == "natal_v2":
         return _build_natal_v2_prompt(data)
@@ -416,7 +425,7 @@ def _build_compatibility_prompt(primary: dict, partner: dict) -> str:
 def _build_confirmation(data: dict) -> str:
     date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
     time_value = data["time"] or "не указано"
-    place_value = data["place"] or "не указан"
+    place_value = _safe_markdown(data["place"]) or "не указан"
     time_mode = _format_time_mode(data["time_mode"])
     return (
         "Шаг 4/6 — проверь данные:\n"
@@ -431,7 +440,7 @@ def _build_confirmation(data: dict) -> str:
 def _build_compatibility_confirmation(data: dict, stage_label: str) -> str:
     date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
     time_value = data["time"] or "не указано"
-    place_value = data["place"] or "не указан"
+    place_value = _safe_markdown(data["place"]) or "не указан"
     time_mode = _format_time_mode(data["time_mode"])
     return (
         f"Шаг 2/6 — проверь данные ({stage_label}):\n"
