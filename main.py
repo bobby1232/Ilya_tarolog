@@ -28,6 +28,7 @@ CONSENT_TEXT = (
 )
 
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+HISTORY_LOG_PATH = os.environ.get("HISTORY_LOG_PATH", "history.log")
 
 DATE_RE = re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})")
 TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
@@ -237,7 +238,10 @@ def _build_compatibility_reading(primary: dict, partner: dict, seed_text: str) -
         f"• Ресурс союза: {resource}.\n"
         f"• Что держит связь: {rng.choice(COMPATIBILITY_KEYS)}.\n"
         f"• Рекомендация: {guidance}.\n"
-        "• Следующий шаг: уточните ожидания и договоритесь о ритуале поддержки.\n\n"
+        "• Следующий шаг: уточните ожидания и договоритесь о ритуале поддержки — "
+        "это простой повторяющийся способ заботы друг о друге. Например: "
+        "созвон раз в неделю на 20 минут без телефонов, вечер благодарностей по пятницам "
+        "или короткий ритуал «как ты?» перед сном.\n\n"
         "*Хочешь глубже? Выбери расклад:*\n"
         "— Совместимость (синастрия)\n"
         "— Отношения\n"
@@ -331,6 +335,7 @@ def _build_compatibility_prompt(primary: dict, partner: dict) -> str:
         "Сформируй совместимость отношений в стиле Элайджа. "
         "Дай 5–7 буллетов: ключ союза, сильная сторона пары, зона напряжения, "
         "ресурс, что держит связь, рекомендация, следующий шаг. "
+        "Следующий шаг объясни простыми словами, что такое «ритуал поддержки», и дай 2-3 примера. "
         "Добавь короткий вывод на 1-2 предложения. "
         "Тон мистический, но структурный, без воды. "
         "Укажи режимы точности для обоих и дисклеймер.\n\n"
@@ -371,6 +376,21 @@ def _build_compatibility_confirmation(data: dict, stage_label: str) -> str:
     )
 
 
+def _log_history(update: Update, action: str, message_text: str | None = None) -> None:
+    timestamp = datetime.utcnow().isoformat(timespec="seconds")
+    user = update.effective_user
+    payload = {
+        "timestamp": timestamp,
+        "user_id": user.id if user else None,
+        "username": user.username if user else None,
+        "full_name": user.full_name if user else None,
+        "action": action,
+        "message": message_text,
+    }
+    with open(HISTORY_LOG_PATH, "a", encoding="utf-8") as log_file:
+        log_file.write(f"{payload}\n")
+
+
 def _call_openai(prompt: str) -> str:
     client = OpenAI()
     completion = client.chat.completions.create(
@@ -405,6 +425,7 @@ async def _generate_compatibility_reading(primary: dict, partner: dict, seed_tex
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _log_history(update, "command:/start")
     await update.message.reply_text(
         "Шаг 1/6 — приветствие.\n"
         "Приветствую, искатель. "
@@ -423,6 +444,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _log_history(update, "command:/help")
     await update.message.reply_text(
         "Шаг 1/6 — согласие на обработку данных.\n"
         "Ответь: «Согласен» или «Не согласен».\n\n"
@@ -437,6 +459,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _log_history(update, "command:/compatibility")
     if not context.user_data.get("consent"):
         await update.message.reply_text(CONSENT_TEXT, parse_mode="Markdown")
         return
@@ -455,6 +478,7 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _log_history(update, "command:/delete")
     context.user_data.clear()
     await update.message.reply_text(
         "Данные сессии удалены. Если захочешь начать заново — напиши /start."
@@ -464,6 +488,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     lower_text = text.lower().strip()
+    _log_history(update, "message", text)
     pending = context.user_data.get("pending_data")
     flow = context.user_data.get("flow")
     stage = context.user_data.get("compatibility_stage")
