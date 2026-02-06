@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 PERSONA = (
-    "Я — Элайди, маг Вселенной. Я читаю узоры звёзд и раскрываю нити судьбы, "
+    "Я — Элайджа, маг Вселенной. Я читаю узоры звёзд и раскрываю нити судьбы, "
     "бережно и с уважением к твоей свободе выбора."
 )
 DISCLAIMER = (
@@ -88,6 +88,35 @@ CAUTIONS = [
     "не откладывай честный разговор",
 ]
 
+COMPATIBILITY_KEYS = [
+    "магнетизм", "доверие", "синхронность", "темп сближения", "общие ценности",
+    "эмоциональная безопасность", "пространство свободы", "ритм общения",
+]
+COMPATIBILITY_STRENGTHS = [
+    "быстрое ощущение «своего человека»",
+    "способность поддерживать друг друга без давления",
+    "живой обмен идеями и вдохновением",
+    "мягкое проживание кризисов без разрушений",
+]
+COMPATIBILITY_TENSIONS = [
+    "разные темпы принятия решений",
+    "контраст в потребности к свободе",
+    "периоды молчания вместо диалога",
+    "склонность копить обиды",
+]
+COMPATIBILITY_RESOURCES = [
+    "ритуал еженедельного разговора о чувствах",
+    "планирование совместных целей на 3 месяца",
+    "бережные правила для конфликтов",
+    "сохранение личного пространства",
+]
+COMPATIBILITY_GUIDANCE = [
+    "Главный ключ союза — честность без упрёков.",
+    "Договоритесь о границах, прежде чем обсуждать планы.",
+    "Сначала — признание чувств, потом решения.",
+    "Сила связи растёт через общие ритуалы.",
+]
+
 
 def _extract_birth_data(text: str) -> dict:
     date_match = DATE_RE.search(text)
@@ -144,7 +173,7 @@ def _build_reading(data: dict, seed_text: str) -> str:
         time_note = "Точность снижена из-за примерного времени рождения.\n\n"
 
     return (
-        "🪐 *Паспорт карты Элайди*\n"
+        "🪐 *Паспорт карты Элайджа*\n"
         f"_{element}_, архетип *{archetype}*; {aspect} в {house}.\n"
         f"*Режим точности:* {time_mode}.\n"
         f"{time_note}"
@@ -162,6 +191,49 @@ def _build_reading(data: dict, seed_text: str) -> str:
         "— Карьера и деньги\n"
         "— Сильные периоды на 3/6/12 месяцев\n"
         "— Совместимость (синастрия)\n\n"
+        f"_{DISCLAIMER}_"
+    )
+
+
+def _build_compatibility_reading(primary: dict, partner: dict, seed_text: str) -> str:
+    rng = random.Random(seed_text)
+    key = rng.choice(COMPATIBILITY_KEYS)
+    strength = rng.choice(COMPATIBILITY_STRENGTHS)
+    tension = rng.choice(COMPATIBILITY_TENSIONS)
+    resource = rng.choice(COMPATIBILITY_RESOURCES)
+    guidance = rng.choice(COMPATIBILITY_GUIDANCE)
+
+    primary_mode = _format_time_mode(primary["time_mode"])
+    partner_mode = _format_time_mode(partner["time_mode"])
+    notes = []
+    if primary["time_mode"] in {"no_time", "unknown"}:
+        notes.append("У тебя режим без времени — точность домов и Асцендента снижена.")
+    if partner["time_mode"] in {"no_time", "unknown"}:
+        notes.append("У партнёра режим без времени — точность домов и Асцендента снижена.")
+    if primary["time_mode"] == "approx" or partner["time_mode"] == "approx":
+        notes.append("Есть примерное время — возможна погрешность в нюансах.")
+
+    note_block = "\n".join(f"• {note}" for note in notes)
+    if note_block:
+        note_block = f"*Точность:*\n{note_block}\n\n"
+
+    return (
+        "💞 *Совместимость Элайджа*\n"
+        f"Ключ союза: *{key}*.\n"
+        f"*Твои данные:* {primary_mode}.\n"
+        f"*Данные партнёра:* {partner_mode}.\n\n"
+        f"{note_block}"
+        "*Карта отношений (5–7 тезисов):*\n"
+        f"• Сильная сторона пары: {strength}.\n"
+        f"• Зона напряжения: {tension}.\n"
+        f"• Ресурс союза: {resource}.\n"
+        f"• Что держит связь: {rng.choice(COMPATIBILITY_KEYS)}.\n"
+        f"• Рекомендация: {guidance}.\n"
+        "• Следующий шаг: уточните ожидания и договоритесь о ритуале поддержки.\n\n"
+        "*Хочешь глубже? Выбери расклад:*\n"
+        "— Совместимость (синастрия)\n"
+        "— Отношения\n"
+        "— Личность и предназначение\n\n"
         f"_{DISCLAIMER}_"
     )
 
@@ -189,7 +261,7 @@ def _build_prompt(data: dict) -> str:
     place_value = data["place"] or "не указан"
     time_mode = _format_time_mode(data["time_mode"])
     return (
-        "Сформируй короткий «паспорт карты» в стиле Элайди. "
+        "Сформируй короткий «паспорт карты» в стиле Элайджа. "
         "Выдай 5–7 буллетов: сильные стороны, слепые зоны, ресурс, вызов роста, "
         "тема периода, рекомендация и осторожность. "
         "Добавь короткий вывод в 1-2 предложения. "
@@ -201,6 +273,33 @@ def _build_prompt(data: dict) -> str:
     )
 
 
+def _build_compatibility_prompt(primary: dict, partner: dict) -> str:
+    def format_data(data: dict) -> str:
+        date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
+        time_value = data["time"] or "не указано"
+        place_value = data["place"] or "не указан"
+        time_mode = _format_time_mode(data["time_mode"])
+        return (
+            f"Дата рождения: {date_value}\n"
+            f"Время: {time_value}\n"
+            f"Место: {place_value}\n"
+            f"Режим: {time_mode}\n"
+        )
+
+    return (
+        "Сформируй совместимость отношений в стиле Элайджа. "
+        "Дай 5–7 буллетов: ключ союза, сильная сторона пары, зона напряжения, "
+        "ресурс, что держит связь, рекомендация, следующий шаг. "
+        "Добавь короткий вывод на 1-2 предложения. "
+        "Тон мистический, но структурный, без воды. "
+        "Укажи режимы точности для обоих и дисклеймер.\n\n"
+        "Данные человека 1:\n"
+        f"{format_data(primary)}\n"
+        "Данные человека 2:\n"
+        f"{format_data(partner)}"
+    )
+
+
 def _build_confirmation(data: dict) -> str:
     date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
     time_value = data["time"] or "не указано"
@@ -208,6 +307,21 @@ def _build_confirmation(data: dict) -> str:
     time_mode = _format_time_mode(data["time_mode"])
     return (
         "Шаг 4/5 — проверь данные:\n"
+        f"• Дата: {date_value}\n"
+        f"• Время: {time_value}\n"
+        f"• Место: {place_value}\n"
+        f"• Режим: {time_mode}\n\n"
+        "Ответь: *Да* или *Исправить*."
+    )
+
+
+def _build_compatibility_confirmation(data: dict, stage_label: str) -> str:
+    date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
+    time_value = data["time"] or "не указано"
+    place_value = data["place"] or "не указан"
+    time_mode = _format_time_mode(data["time_mode"])
+    return (
+        f"Шаг 2/6 — проверь данные ({stage_label}):\n"
         f"• Дата: {date_value}\n"
         f"• Время: {time_value}\n"
         f"• Место: {place_value}\n"
@@ -239,6 +353,16 @@ async def _generate_reading(data: dict, seed_text: str) -> str:
         return _build_reading(data, seed_text)
 
 
+async def _generate_compatibility_reading(primary: dict, partner: dict, seed_text: str) -> str:
+    if not os.environ.get("OPENAI_API_KEY"):
+        return _build_compatibility_reading(primary, partner, seed_text)
+    prompt = _build_compatibility_prompt(primary, partner)
+    try:
+        return await asyncio.to_thread(_call_openai, prompt)
+    except Exception:
+        return _build_compatibility_reading(primary, partner, seed_text)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Шаг 1/5 — приветствие.\n"
@@ -252,6 +376,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🟡 «не знаю» (упрощённая интерпретация)\n\n"
         "Шаг 2/5 — отправь данные одним сообщением:\n"
         "например: 12.07.1991 14:25 Москва\n\n"
+        "Если хочешь проверить совместимость, напиши: /compatibility\n\n"
         f"{DISCLAIMER}"
     )
 
@@ -262,7 +387,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Напиши дату, время и город.\n"
         "Если время неизвестно, напиши «не знаю» или «примерно».\n"
         "Пример: 12.07.1991 14:25 Москва\n"
-        "После подтверждения я дам паспорт карты и предложу расклады."
+        "После подтверждения я дам паспорт карты и предложу расклады.\n\n"
+        "Для проверки совместимости: /compatibility"
+    )
+
+
+async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data["flow"] = "compatibility"
+    context.user_data["compatibility_stage"] = "primary"
+    context.user_data.pop("pending_data", None)
+    await update.message.reply_text(
+        "Шаг 1/6 — совместимость.\n"
+        "Отправь свои данные: дата рождения, время и город.\n"
+        "Пример: 12.07.1991 14:25 Москва\n\n"
+        "Режимы времени:\n"
+        "✅ «знаю точное время»\n"
+        "⚠️ «примерно» (±30–60 минут)\n"
+        "🟡 «не знаю»"
     )
 
 
@@ -270,15 +411,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = update.message.text
     lower_text = text.lower().strip()
     pending = context.user_data.get("pending_data")
+    flow = context.user_data.get("flow")
+    stage = context.user_data.get("compatibility_stage")
+
+    if not pending and any(keyword in lower_text for keyword in {"совместимость", "синастрия"}):
+        await compatibility_command(update, context)
+        return
 
     if pending and lower_text in {"да", "верно", "ок", "окей", "yes"}:
         context.user_data.pop("pending_data", None)
+        if flow == "compatibility":
+            if stage == "primary":
+                context.user_data["compatibility_primary"] = pending
+                context.user_data["compatibility_stage"] = "partner"
+                await update.message.reply_text(
+                    "Шаг 3/6 — данные партнёра.\n"
+                    "Отправь дату рождения, время и город партнёра.\n"
+                    "Пример: 02.11.1993 09:10 Санкт-Петербург\n\n"
+                    "Если время неизвестно, напиши «не знаю» или «примерно»."
+                )
+                return
+            if stage == "partner":
+                primary = context.user_data.get("compatibility_primary")
+                context.user_data.pop("compatibility_primary", None)
+                context.user_data.pop("compatibility_stage", None)
+                context.user_data.pop("flow", None)
+                reading = await _generate_compatibility_reading(primary, pending, text)
+                await update.message.reply_text(reading, parse_mode="Markdown")
+                return
         reading = await _generate_reading(pending, text)
         await update.message.reply_text(reading, parse_mode="Markdown")
         return
 
     if pending and lower_text in {"исправить", "нет", "неверно"}:
         context.user_data.pop("pending_data", None)
+        if flow == "compatibility":
+            await update.message.reply_text(
+                "Шаг 2/6 — отправь данные заново: дата, время, город.\n"
+                "Пример: 12.07.1991 14:25 Москва\n"
+                "Если время неизвестно, напиши «не знаю» или «примерно»."
+            )
+            return
         await update.message.reply_text(
             "Шаг 2/5 — отправь данные заново: дата, время, город.\n"
             "Пример: 12.07.1991 14:25 Москва\n"
@@ -311,6 +484,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     context.user_data["pending_data"] = data
+    if flow == "compatibility":
+        stage_label = "ты" if stage == "primary" else "партнёр"
+        await update.message.reply_text(
+            _build_compatibility_confirmation(data, stage_label),
+            parse_mode="Markdown",
+        )
+        return
     await update.message.reply_text(_build_confirmation(data), parse_mode="Markdown")
 
 
@@ -323,6 +503,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("compatibility", compatibility_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
