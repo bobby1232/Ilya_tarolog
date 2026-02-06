@@ -15,6 +15,7 @@ pip install -r requirements.txt
 
 ```bash
 export BOT_TOKEN=ваш_токен
+export OPENAI_API_KEY=ваш_openai_api_key
 python main.py
 ```
 
@@ -22,6 +23,7 @@ python main.py
 
 1. Создайте новый проект на Railway и подключите репозиторий.
 2. В настройках проекта добавьте переменную окружения `BOT_TOKEN`.
+   Для умного расклада от OpenAI добавьте `OPENAI_API_KEY` (и при желании `OPENAI_MODEL`).
 3. Railway автоматически установит зависимости и запустит `python main.py`.
 
 Если нужно, можно задать команду запуска вручную: `python main.py`.
