@@ -1,0 +1,137 @@
+import logging
+import os
+import random
+import re
+from datetime import datetime
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+
+PERSONA = (
+    "Я — Элайди, маг Вселенной. Я читаю узоры звёзд и раскрываю нити судьбы, "
+    "бережно и с уважением к твоей свободе выбора."
+)
+
+DATE_RE = re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})")
+TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+
+ELEMENTS = ["Огня", "Земли", "Воздуха", "Воды"]
+ARCHETYPES = [
+    "Искатель", "Хранитель", "Творец", "Проводник", "Алхимик", "Странник",
+    "Мудрец", "Воин", "Целитель", "Певец", "Звездочёт", "Вдохновитель",
+]
+ASPECTS = [
+    "гармоничное соединение", "тёплая трина", "напряжённая квадратура",
+    "зеркальная оппозиция", "исцеляющий секстиль", "тайная конъюнкция",
+]
+HOUSES = [
+    "первом доме личности", "втором доме ценностей", "третьем доме общения",
+    "четвёртом доме корней", "пятом доме творчества", "шестом доме служения",
+    "седьмом доме союзов", "восьмом доме трансформации", "девятом доме пути",
+    "десятом доме предназначения", "одиннадцатом доме надежды", "двенадцатом доме тайн",
+]
+GUIDANCE = [
+    "Прислушайся к телу — оно знает, где твоя истина.",
+    "Отпусти старое обещание и дай место новому союзу.",
+    "Сохрани ритуал тишины хотя бы на один вечер.",
+    "Доверяй медленным решениям: они прочнее быстрых.",
+    "Скажи вслух своё намерение — и путь откликнется.",
+    "Найди союзника, который будет зеркалом твоей силы.",
+]
+
+
+def _extract_birth_data(text: str) -> dict:
+    date_match = DATE_RE.search(text)
+    time_match = TIME_RE.search(text)
+    date_value = None
+    time_value = None
+
+    if date_match:
+        day, month, year = map(int, date_match.groups())
+        try:
+            date_value = datetime(year, month, day).date()
+        except ValueError:
+            date_value = None
+
+    if time_match:
+        hour, minute = map(int, time_match.groups())
+        if 0 <= hour < 24 and 0 <= minute < 60:
+            time_value = f"{hour:02d}:{minute:02d}"
+
+    place_match = None
+    if "город" in text.lower():
+        place_match = text
+    return {
+        "date": date_value,
+        "time": time_value,
+        "place": place_match,
+    }
+
+
+def _build_reading(seed_text: str) -> str:
+    rng = random.Random(seed_text)
+    element = rng.choice(ELEMENTS)
+    archetype = rng.choice(ARCHETYPES)
+    aspect = rng.choice(ASPECTS)
+    house = rng.choice(HOUSES)
+    guidance = rng.choice(GUIDANCE)
+
+    return (
+        "🪐 *Натальный расклад Элайди*\n\n"
+        f"В твоей карте звучит стихия *{element}*, открывая образ *{archetype}*.\n"
+        f"Я вижу {aspect} в {house}. Это указывает на скрытую силу, которая ведёт тебя.\n\n"
+        f"Совет мага: _{guidance}_"
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Приветствую, искатель. "
+        f"{PERSONA}\n\n"
+        "Напиши дату рождения (дд.мм.гггг), время (чч:мм) и город, "
+        "чтобы я разложил твою натальную карту."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Напиши мне сообщение с датой, временем и городом рождения.\n"
+        "Пример: 12.07.1991 14:25 Москва\n"
+        "Я отвечу натальным раскладом от имени Элайди."
+    )
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    data = _extract_birth_data(text)
+    if not data["date"] or not data["time"]:
+        await update.message.reply_text(
+            "Чтобы карта была ясной, мне нужна дата и время рождения. "
+            "Напиши в формате: 12.07.1991 14:25 Москва"
+        )
+        return
+
+    reading = _build_reading(text)
+    await update.message.reply_text(reading, parse_mode="Markdown")
+
+
+def main() -> None:
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("BOT_TOKEN environment variable is required")
+
+    app = ApplicationBuilder().token(token).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
