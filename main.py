@@ -22,6 +22,10 @@ DISCLAIMER = (
     "Это не медицинская и не юридическая консультация. "
     "Расклад — метафора для саморефлексии."
 )
+CONSENT_TEXT = (
+    "Чтобы продолжить, нужно согласие на обработку данных рождения. "
+    "Ответь: *Согласен* или *Не согласен*."
+)
 
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -172,8 +176,12 @@ def _build_reading(data: dict, seed_text: str) -> str:
     elif data["time_mode"] == "approx":
         time_note = "Точность снижена из-за примерного времени рождения.\n\n"
 
+    name_line = f"*Имя:* {data['name']}.\n" if data.get("name") else ""
+    goal_line = f"*Запрос:* {data['goal']}.\n" if data.get("goal") else ""
     return (
         "🪐 *Паспорт карты Элайджа*\n"
+        f"{name_line}"
+        f"{goal_line}"
         f"_{element}_, архетип *{archetype}*; {aspect} в {house}.\n"
         f"*Режим точности:* {time_mode}.\n"
         f"{time_note}"
@@ -246,6 +254,36 @@ def _extract_place(text: str) -> str | None:
     return cleaned or None
 
 
+def _extract_profile_data(text: str) -> tuple[str | None, str | None]:
+    cleaned = text.strip()
+    if not cleaned:
+        return None, None
+    if "," in cleaned:
+        name_part, goal_part = [part.strip() for part in cleaned.split(",", 1)]
+    else:
+        name_part, goal_part = cleaned, ""
+    goal = _normalize_goal(goal_part)
+    name = name_part or None
+    return name, goal
+
+
+def _normalize_goal(text: str) -> str | None:
+    value = text.lower()
+    goals = {
+        "отношения": "отношения",
+        "карьера": "карьера",
+        "деньги": "деньги",
+        "самореализация": "самореализация",
+        "период": "сильные периоды",
+        "периоды": "сильные периоды",
+        "другое": "другое",
+    }
+    for key, label in goals.items():
+        if key in value:
+            return label
+    return text.strip() or None
+
+
 def _format_time_mode(time_mode: str) -> str:
     return {
         "exact": "✅ точное время — максимум точности",
@@ -260,6 +298,8 @@ def _build_prompt(data: dict) -> str:
     time_value = data["time"] or "не указано"
     place_value = data["place"] or "не указан"
     time_mode = _format_time_mode(data["time_mode"])
+    name_value = data.get("name") or "не указано"
+    goal_value = data.get("goal") or "не указан"
     return (
         "Сформируй короткий «паспорт карты» в стиле Элайджа. "
         "Выдай 5–7 буллетов: сильные стороны, слепые зоны, ресурс, вызов роста, "
@@ -270,6 +310,7 @@ def _build_prompt(data: dict) -> str:
         "Укажи режим точности и дисклеймер."
         f"\n\nДанные:\nДата рождения: {date_value}\n"
         f"Время: {time_value}\nМесто: {place_value}\nРежим: {time_mode}\n"
+        f"Имя: {name_value}\nЗапрос: {goal_value}\n"
     )
 
 
@@ -306,7 +347,7 @@ def _build_confirmation(data: dict) -> str:
     place_value = data["place"] or "не указан"
     time_mode = _format_time_mode(data["time_mode"])
     return (
-        "Шаг 4/5 — проверь данные:\n"
+        "Шаг 4/6 — проверь данные:\n"
         f"• Дата: {date_value}\n"
         f"• Время: {time_value}\n"
         f"• Место: {place_value}\n"
@@ -365,7 +406,7 @@ async def _generate_compatibility_reading(primary: dict, partner: dict, seed_tex
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Шаг 1/5 — приветствие.\n"
+        "Шаг 1/6 — приветствие.\n"
         "Приветствую, искатель. "
         f"{PERSONA}\n\n"
         "Я соберу данные и покажу твой астропрофиль за 60–90 секунд.\n"
@@ -374,8 +415,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "✅ «знаю точное время»\n"
         "⚠️ «примерно» (±30–60 минут)\n"
         "🟡 «не знаю» (упрощённая интерпретация)\n\n"
-        "Шаг 2/5 — отправь данные одним сообщением:\n"
-        "например: 12.07.1991 14:25 Москва\n\n"
+        f"{CONSENT_TEXT}\n\n"
+        "После согласия перейдём к данным рождения.\n\n"
         "Если хочешь проверить совместимость, напиши: /compatibility\n\n"
         f"{DISCLAIMER}"
     )
@@ -383,16 +424,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Шаг 1/5 — данные рождения.\n"
+        "Шаг 1/6 — согласие на обработку данных.\n"
+        "Ответь: «Согласен» или «Не согласен».\n\n"
+        "Шаг 2/6 — данные рождения.\n"
         "Напиши дату, время и город.\n"
         "Если время неизвестно, напиши «не знаю» или «примерно».\n"
         "Пример: 12.07.1991 14:25 Москва\n"
-        "После подтверждения я дам паспорт карты и предложу расклады.\n\n"
-        "Для проверки совместимости: /compatibility"
+        "После подтверждения спрошу имя и цель, затем дам паспорт карты.\n\n"
+        "Для проверки совместимости: /compatibility\n"
+        "Удалить данные сессии: /delete"
     )
 
 
 async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.user_data.get("consent"):
+        await update.message.reply_text(CONSENT_TEXT, parse_mode="Markdown")
+        return
     context.user_data["flow"] = "compatibility"
     context.user_data["compatibility_stage"] = "primary"
     context.user_data.pop("pending_data", None)
@@ -407,12 +454,37 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.clear()
+    await update.message.reply_text(
+        "Данные сессии удалены. Если захочешь начать заново — напиши /start."
+    )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     lower_text = text.lower().strip()
     pending = context.user_data.get("pending_data")
     flow = context.user_data.get("flow")
     stage = context.user_data.get("compatibility_stage")
+    pending_profile = context.user_data.get("pending_profile")
+
+    if not context.user_data.get("consent"):
+        if lower_text in {"согласен", "да", "ok", "ок", "окей"}:
+            context.user_data["consent"] = True
+            await update.message.reply_text(
+                "Шаг 2/6 — отправь данные рождения одним сообщением:\n"
+                "например: 12.07.1991 14:25 Москва"
+            )
+            return
+        if lower_text in {"не согласен", "нет"}:
+            await update.message.reply_text(
+                "Без согласия я не могу продолжить. "
+                "Если передумаешь — напиши «Согласен»."
+            )
+            return
+        await update.message.reply_text(CONSENT_TEXT, parse_mode="Markdown")
+        return
 
     if not pending and any(keyword in lower_text for keyword in {"совместимость", "синастрия"}):
         await compatibility_command(update, context)
@@ -439,8 +511,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reading = await _generate_compatibility_reading(primary, pending, text)
                 await update.message.reply_text(reading, parse_mode="Markdown")
                 return
-        reading = await _generate_reading(pending, text)
-        await update.message.reply_text(reading, parse_mode="Markdown")
+        context.user_data["pending_profile"] = pending
+        await update.message.reply_text(
+            "Шаг 5/6 — имя и цель.\n"
+            "Напиши имя (или псевдоним) и цель, например:\n"
+            "Алина, отношения\n\n"
+            "Цели: отношения / карьера / деньги / самореализация / период / другое."
+        )
         return
 
     if pending and lower_text in {"исправить", "нет", "неверно"}:
@@ -453,30 +530,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
         await update.message.reply_text(
-            "Шаг 2/5 — отправь данные заново: дата, время, город.\n"
+            "Шаг 2/6 — отправь данные заново: дата, время, город.\n"
             "Пример: 12.07.1991 14:25 Москва\n"
             "Если время неизвестно, напиши «не знаю» или «примерно»."
         )
         return
 
+    if pending_profile:
+        context.user_data.pop("pending_profile", None)
+        name, goal = _extract_profile_data(text)
+        pending_profile["name"] = name
+        pending_profile["goal"] = goal
+        reading = await _generate_reading(pending_profile, text)
+        await update.message.reply_text(reading, parse_mode="Markdown")
+        return
+
     data = _extract_birth_data(text)
     if not data["date"]:
         await update.message.reply_text(
-            "Шаг 2/5 — нужна дата рождения.\n"
+            "Шаг 2/6 — нужна дата рождения.\n"
             "Напиши в формате: 12.07.1991 14:25 Москва"
         )
         return
 
     if not data["place"]:
         await update.message.reply_text(
-            "Шаг 3/5 — нужен город и страна рождения.\n"
+            "Шаг 3/6 — нужен город и страна рождения.\n"
             "Напиши, например: Москва, Россия."
         )
         return
 
     if data["time_mode"] == "unknown":
         await update.message.reply_text(
-            "Шаг 3/5 — выбери режим времени:\n"
+            "Шаг 3/6 — выбери режим времени:\n"
             "✅ «знаю точное время» (например: 14:25)\n"
             "⚠️ «примерно» (±30–60 минут)\n"
             "🟡 «не знаю»"
@@ -504,6 +590,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("compatibility", compatibility_command))
+    app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
