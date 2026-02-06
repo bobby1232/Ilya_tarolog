@@ -26,6 +26,22 @@ CONSENT_TEXT = (
     "Чтобы продолжить, нужно согласие на обработку данных рождения. "
     "Ответь: *Согласен* или *Не согласен*."
 )
+NATAL_V2_PROMPT = (
+    "Ты — эксперт по астрологии, нумерологии, Матрице Судьбы и планетарным циклам. "
+    "Проанализируй дату рождения и составь психологический портрет. "
+    "Учитывай Матрицу Судьбы, нумерологию, натальную карту, возвраты планет, "
+    "влияние Сатурна, Юпитера, Венеры, Лунных узлов, а также актуальные транзиты. "
+    "Дай точный анализ.\n\n"
+    "Используй реальную натальную карту: учти положение Солнца, Луны, Венеры, Марса, "
+    "управителей домов и аспекты между ними.\n\n"
+    "Сделай акцент на астропсихологию, а не на «предсказания судьбы».\n\n"
+    "Пиши реалистично, как человек, который знает человека лично — без идеализации, "
+    "пафоса и шаблонов.\n\n"
+    "Формат ответа — реалистичная, психологически точная история, будто ты рассказываешь "
+    "подруге или другу.\n\n"
+    "Стиль — честный, тёплый, с лёгкой иронией и бытовыми деталями, без фраз вроде "
+    "«тебя ждёт судьбоносная встреча»."
+)
 
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 HISTORY_LOG_PATH = os.environ.get("HISTORY_LOG_PATH", "history.log")
@@ -322,6 +338,12 @@ def _format_time_mode(time_mode: str) -> str:
 
 
 def _build_prompt(data: dict) -> str:
+    if data.get("reading_mode") == "natal_v2":
+        return _build_natal_v2_prompt(data)
+    return _build_passport_prompt(data)
+
+
+def _build_passport_prompt(data: dict) -> str:
     date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
     time_value = data["time"] or "не указано"
     place_value = data["place"] or "не указан"
@@ -339,6 +361,27 @@ def _build_prompt(data: dict) -> str:
         f"\n\nДанные:\nДата рождения: {date_value}\n"
         f"Время: {time_value}\nМесто: {place_value}\nРежим: {time_mode}\n"
         f"Имя: {name_value}\nЗапрос: {goal_value}\n"
+    )
+
+
+def _build_natal_v2_prompt(data: dict) -> str:
+    date_value = data["date"].strftime("%d.%m.%Y") if data["date"] else "не указана"
+    time_value = data["time"] or "не указано"
+    place_value = data["place"] or "не указан"
+    time_mode = _format_time_mode(data["time_mode"])
+    name_value = data.get("name") or "не указано"
+    goal_value = data.get("goal") or "не указан"
+    return (
+        f"{NATAL_V2_PROMPT}\n\n"
+        f"Данные:\nДата рождения: {date_value}\n"
+        f"Время: {time_value}\n"
+        f"Место: {place_value}\n"
+        f"Режим: {time_mode}\n"
+        f"Имя: {name_value}\n"
+        f"Запрос: {goal_value}\n\n"
+        "Сохрани тон Элайджа, но без мистического пафоса — больше человеческой "
+        "реалистичности. В конце короткий дисклеймер, что это не медицинская и не юридическая "
+        "консультация."
     )
 
 
@@ -463,6 +506,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{CONSENT_TEXT}\n\n"
         "После согласия перейдём к данным рождения.\n\n"
         "Если хочешь проверить совместимость, напиши: /compatibility\n\n"
+        "Для расширенного психологического разбора — /natal_v2\n\n"
         f"{DISCLAIMER}",
         reply_markup=CONSENT_KEYBOARD,
         parse_mode="Markdown",
@@ -480,6 +524,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Пример: 12.07.1991 14:25 Москва\n"
         "После подтверждения спрошу имя и цель, затем дам паспорт карты.\n\n"
         "Для проверки совместимости: /compatibility\n"
+        "Расширенный разбор (натальная карта v2): /natal_v2\n"
         "Удалить данные сессии: /delete"
     )
 
@@ -504,6 +549,25 @@ async def compatibility_command(update: Update, context: ContextTypes.DEFAULT_TY
         "✅ «знаю точное время»\n"
         "⚠️ «примерно» (±30–60 минут)\n"
         "🟡 «не знаю»",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def natal_v2_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _log_history(update, "command:/natal_v2")
+    context.user_data["reading_mode"] = "natal_v2"
+    if not context.user_data.get("consent"):
+        await update.message.reply_text(
+            CONSENT_TEXT,
+            parse_mode="Markdown",
+            reply_markup=CONSENT_KEYBOARD,
+        )
+        return
+    await update.message.reply_text(
+        "Шаг 2/6 — натальная карта v2.\n"
+        "Отправь дату рождения, время и город одним сообщением.\n"
+        "Пример: 12.07.1991 14:25 Москва\n\n"
+        "Если времени нет, напиши «не знаю» или «примерно».",
         reply_markup=ReplyKeyboardRemove(),
     )
 
@@ -550,6 +614,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if not pending and any(keyword in lower_text for keyword in {"совместимость", "синастрия"}):
         await compatibility_command(update, context)
+        return
+
+    if not pending and any(keyword in lower_text for keyword in {"натальная карта v2", "нотальная карта v2"}):
+        await natal_v2_command(update, context)
         return
 
     if pending and lower_text in {"да", "верно", "ок", "окей", "yes"}:
@@ -606,6 +674,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if pending_profile:
         context.user_data.pop("pending_profile", None)
+        context.user_data.pop("reading_mode", None)
         name, goal = _extract_profile_data(text)
         pending_profile["name"] = name
         pending_profile["goal"] = goal
@@ -704,6 +773,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     data = _extract_birth_data(text)
+    if context.user_data.get("reading_mode"):
+        data["reading_mode"] = context.user_data["reading_mode"]
     if not data["date"]:
         await update.message.reply_text(
             "Шаг 2/6 — нужна дата рождения.\n"
@@ -755,6 +826,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("compatibility", compatibility_command))
+    app.add_handler(CommandHandler("natal_v2", natal_v2_command))
     app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
